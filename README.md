@@ -7,13 +7,14 @@ time, using processes, pipes, sockets, threads and signals.
 
 ## How it works
 
-            stdin             pipe
- recipes ──────────► Cuisine ◄──────► Stock
-                     (server)
-                        ▲
-                  TCP socket (port 3333)
-                        │
-                 Client 1 … Client n
+```
+  recipes --(stdin)--> Cuisine <--(pipe)--> Stock
+                       (server)
+                          ^
+                          | TCP socket (port 3333)
+                          v
+                 Client 1 ... Client n
+```
 
 - **`cuisine`** – the kitchen. It loads recipes (one CSV path per line on
   stdin), forks the stock process, and runs a TCP server on `127.0.0.1:3333`.
@@ -29,12 +30,12 @@ time, using processes, pipes, sockets, threads and signals.
 
 A deliberately minimal text protocol: one request, one response.
 
-| Request             | Response                         |
-|---------------------|----------------------------------|
-| `GET menu`          | `OK "<menu>"`                    |
-| `GET plat <id> [n]` | `OK <id> <n>` — dish prepared    |
-|                     | `EPUISE <id>` — not enough stock |
-|                     | `KO` — invalid request or id     |
+| Request             | Response                           |
+|---------------------|------------------------------------|
+| `GET menu`          | `OK "<menu>"`                      |
+| `GET plat <id> [n]` | `OK <id> <n>` – dish prepared      |
+|                     | `EPUISE <id>` – not enough stock   |
+|                     | `KO` – invalid request or id       |
 
 ## Concepts practised
 
@@ -47,12 +48,17 @@ A deliberately minimal text protocol: one request, one response.
 
 ## Build and run
 
-    g++ -std=c++17 -Wall -Wextra cuisine.cpp -o cuisine -pthread
-    ./afficheur-recettes.sh recettes/ | ./cuisine
+```bash
+g++ -std=c++17 -Wall -Wextra cuisine.cpp -o cuisine -pthread
+./afficheur-recettes.sh recettes/ | ./cuisine
+```
 
-    # in another terminal
-    ./commande menu
-    ./commande plat 1 2
+In another terminal:
+
+```bash
+./commande menu
+./commande plat 1 2
+```
 
 ## Status
 
