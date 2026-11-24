@@ -1,14 +1,10 @@
 #!/bin/bash
-echo "Bienvenu dans l'afficheur de recettes !"
-sleep 5
-
 precedent=""
 
 while true; do
- actuel=$(ls $1)
+ actuel=$(ls "$1")
  if [ "$actuel" != "$precedent" ]; then
-    clear
-    ls -d "$(realpath "$1")"/*
+    ls -d "$(realpath "$1")"/*.csv
  fi
  precedent="$actuel"
  sleep 30

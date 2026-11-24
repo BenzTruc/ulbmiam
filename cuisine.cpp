@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <filesystem>
 #include <mutex>
+#include <csignal>
 
 #define READ 0
 #define WRITE 1
@@ -99,13 +100,28 @@ class Stock{
 
 };
 
+volatile sig_atomic_t stock_stop = 0;
 
+void stockSignalHandler(int){
+    stock_stop = 1;
+}
 
 void stock(int read_fd, int write_fd){
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = stockSignalHandler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGPIPE, &sa , nullptr);
+
+
     int operation;
     Stock stock(read_fd, write_fd);
-    while (read(read_fd, &operation, sizeof(int)) > 0)
+    while (!stock_stop)
     {
+        ssize_t n = read(read_fd, &operation, sizeof(int));
+        if (n <= 0) break;
         switch (operation){
             case 1:
             stock.sendItemQuantity();
@@ -125,8 +141,8 @@ void stock(int read_fd, int write_fd){
 
         }
     }
-    
-
+    close(read_fd);
+    close(write_fd);
 }
 
 
@@ -224,7 +240,7 @@ class Cuisine{
                 write(write_fd, &ingredientNewQuantity, sizeof(ingredient));
                 char response[4];
                 read(read_fd, &response, sizeof(response));
-                if (strcmp(response, "KO\n")){
+                if (strcmp(response, "KO\n") == 0){
                     return "KO";
                 }               
             }
@@ -238,10 +254,8 @@ class Cuisine{
             for (const Reciept& recette : ListeRecettes){
                 menuStr += "\\n" + std::to_string(i) + ".";
                 menuStr += recette.nom ;
-                std::cout << recette.nom << "\\";
                 i++;
             }
-            std::cout << std::endl;
             menuStr += "\"\n";
             return menuStr;
 
@@ -371,6 +385,11 @@ void * clientHandler(void * args){
 
 void Serveur::run(){
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0){
+        perror("socket");
+        return;
+    }
+
     int opt = 1;
 
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));
@@ -379,14 +398,25 @@ void Serveur::run(){
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(port);
 
-    bind(server_fd, (struct sockaddr *)&address, sizeof(address));
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0){
+        perror("bind");
+        return;
+    }
 
-    listen(server_fd, 3);
+    if (listen(server_fd, 3) < 0){
+        perror("listen");
+        return;
+    }
     size_t addrlen = sizeof(address);
     while (true)
     {
         int client_fd;
         client_fd = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
+        if (client_fd < 0){
+            perror("accept");
+            continue;
+        }
+
         pthread_t clientThread;
         clientArgs * client = new clientArgs;
         client->client_fd = client_fd;
@@ -423,15 +453,18 @@ void cuisine(int fd_pere_fils, int fd_fils_pere){
     pthread_create(&serverThread, NULL, serveur, &cuisine);
 
     std::string filename;
-    while (std::cin >> filename)
+    while (std::getline(std::cin, filename))
     {
         Reciept recette;
         recette.nom = std::filesystem::path(filename).stem().string();
         std::vector <Item> items = readCsv(filename);
+        //verifier si items contient bien quelque chose !
         recette.ingredients = items;
         cuisine.addReciept(recette);
 
     }
+
+    pthread_join(serverThread, NULL);
     
 }
 
@@ -440,18 +473,27 @@ void cuisine(int fd_pere_fils, int fd_fils_pere){
 
 int main(){
     int fd_pere_fils[2], fd_fils_pere[2];
-    pipe(fd_pere_fils);
-    pipe(fd_fils_pere);
+    if (pipe(fd_pere_fils) < 0){
+        perror("pipe");
+        return 1;
+    }
+    if(pipe(fd_fils_pere) < 0){
+        perror("pipe");
+        return 1;
+    }
 
     pid_t forkValue = fork();
     if (forkValue > 0){
         //parent
+        signal(SIGPIPE, SIG_IGN);
         close(fd_pere_fils[READ]);
         close(fd_fils_pere[WRITE]);
         cuisine(fd_pere_fils[WRITE], fd_fils_pere[READ]);
     }
     else if (forkValue < 0){
         //error => can't make child process
+        perror("fork");
+        return 1;
     }
     else{
         //child => stock
