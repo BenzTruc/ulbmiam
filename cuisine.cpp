@@ -14,12 +14,16 @@
 #include <filesystem>
 #include <mutex>
 #include <csignal>
+#include <arpa/inet.h>
+#include <atomic>
+#include <sys/wait.h>
 
 #define READ 0
 #define WRITE 1
 
 const int multiplicateur = 100;
 const int port = 3333;
+std::atomic<bool> arret(false);
 
 //STRUCTURES
 struct Item{
@@ -247,6 +251,18 @@ class Cuisine{
             return "OK";
         }
 
+        void showStock(){
+            std::lock_guard<std::mutex> guard(mutex);
+            int commandNumber = 4;
+            write(write_fd, &commandNumber, sizeof(commandNumber));
+        }
+
+        void closePipes(){
+            std::lock_guard<std::mutex> guard(mutex);
+            close(write_fd);
+            close(read_fd);
+        }
+
         std::string getMenu(){
             std::lock_guard<std::mutex> guard(mutex);
             std::string menuStr = "OK \"Menu";
@@ -408,13 +424,17 @@ void Serveur::run(){
         return;
     }
     size_t addrlen = sizeof(address);
-    while (true)
+    while (!arret)
     {
         int client_fd;
         client_fd = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
         if (client_fd < 0){
             perror("accept");
             continue;
+        }
+        if(arret){
+            close(client_fd);
+            break;
         }
 
         pthread_t clientThread;
@@ -445,13 +465,28 @@ void * serveur(void * arg){
     return nullptr;
 };
 
+void reveillerServeur(){
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0){
+        perror("socket");
+        return;
+    }
+    struct sockaddr_in servr_addr;
+    memset(&servr_addr, 0, sizeof(servr_addr));
+    servr_addr.sin_family = AF_INET;
+    servr_addr.sin_port = htons(port);
+    inet_pton(AF_INET, "127.0.0.1", &servr_addr.sin_addr);
+    if (connect(sock, (struct sockaddr*)&servr_addr, sizeof(servr_addr)) < 0){
+        perror("connect");
+        close(sock);
+        return;
+    }
+    close(sock);
+}
 
-void cuisine(int fd_pere_fils, int fd_fils_pere){
-    //On lance un thread qui va exécuter le serveur
-    Cuisine cuisine(fd_pere_fils, fd_fils_pere);
-    pthread_t serverThread;
-    pthread_create(&serverThread, NULL, serveur, &cuisine);
 
+void * lectureStdin(void * arg){
+    Cuisine * cuisine = static_cast<Cuisine*>(arg);
     std::string filename;
     while (std::getline(std::cin, filename))
     {
@@ -460,11 +495,43 @@ void cuisine(int fd_pere_fils, int fd_fils_pere){
         std::vector <Item> items = readCsv(filename);
         //verifier si items contient bien quelque chose !
         recette.ingredients = items;
-        cuisine.addReciept(recette);
+        cuisine->addReciept(recette);
 
     }
+    return nullptr;
+}
 
+void cuisine(int fd_pere_fils, int fd_fils_pere, pid_t stockPid){
+    //On lance un thread qui va exécuter le serveur
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &set, nullptr);
+    Cuisine cuisine(fd_pere_fils, fd_fils_pere);
+    pthread_t serverThread, stdinThread;
+    pthread_create(&serverThread, NULL, serveur, &cuisine);
+    pthread_create(&stdinThread, NULL, lectureStdin, &cuisine);
+
+    while (true)
+    {
+        int sig;
+        sigwait(&set, &sig);
+        if (sig == SIGUSR1){
+            cuisine.showStock();
+        }
+        else if (sig == SIGINT){
+            break;
+        }
+    }
+
+    arret = true;
+    reveillerServeur();
     pthread_join(serverThread, NULL);
+    pthread_cancel(stdinThread);
+    pthread_join(stdinThread, NULL);
+    cuisine.closePipes();
+    waitpid(stockPid, 0, 0);
     
 }
 
@@ -488,7 +555,7 @@ int main(){
         signal(SIGPIPE, SIG_IGN);
         close(fd_pere_fils[READ]);
         close(fd_fils_pere[WRITE]);
-        cuisine(fd_pere_fils[WRITE], fd_fils_pere[READ]);
+        cuisine(fd_pere_fils[WRITE], fd_fils_pere[READ], forkValue);
     }
     else if (forkValue < 0){
         //error => can't make child process
