@@ -67,4 +67,4 @@ In another terminal:
 - [x] Mutex-protected orders (150 simultaneous clients, no overselling)
 - [x] `commande` client
 - [x] `afficheur-recettes.sh`
-- [ ] Signal handling and clean shutdown
+- [x] Signal handling and clean shutdown
