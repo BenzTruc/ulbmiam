@@ -5,6 +5,11 @@
 #include <unistd.h>
 #include <iostream>
 #include <csignal>
+#include <cstdlib>
+
+
+
+
 
 ssize_t send_message(int socket, const char * message, char* buffer, size_t bufferSize){
     write(socket, message, strlen(message));
@@ -44,8 +49,20 @@ int main(int argc, char* argv[]){
     servr_addr.sin_family = AF_INET;
     servr_addr.sin_port = htons(3333);
 
-    //On converti l'adress ip de string en binaire et on l'attribue a sin_addr
-    inet_pton(AF_INET, "127.0.0.1", &servr_addr.sin_addr);
+    //On récupère l'addrese IP dans l'envrionnement si jamais l'ip est absente ou invalide on part sur l'ip par défaut qui est 127.0.0.1
+
+    const char* envIp = std::getenv("IP_CUISINE");
+    char ip[] = "127.0.0.1";
+
+    if (envIp != nullptr){
+        if (inet_pton(AF_INET, envIp, &servr_addr.sin_addr) != 1){
+            inet_pton(AF_INET, ip, &servr_addr.sin_addr);
+        }
+    }
+    else{
+        inet_pton(AF_INET, ip, &servr_addr.sin_addr);
+    }
+
 
     //On se connecte
     if (connect(sock, (struct sockaddr*)&servr_addr, sizeof(servr_addr)) < 0){
