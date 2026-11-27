@@ -494,6 +494,9 @@ void * lectureStdin(void * arg){
         recette.nom = std::filesystem::path(filename).stem().string();
         std::vector <Item> items = readCsv(filename);
         //verifier si items contient bien quelque chose !
+        if (items.empty()){
+            continue;
+        }
         recette.ingredients = items;
         cuisine->addReciept(recette);
 
