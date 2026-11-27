@@ -1,11 +1,20 @@
 #!/bin/bash
-precedent=""
+if [ $# -ne 1 ] || [ ! -d "$1" ]; then
+    echo "Usage: $0 DOSSIER" >&2
+    exit 1
+fi
+
+dossier=$(realpath "$1")    
+deja_vus=""                
 
 while true; do
- actuel=$(ls "$1")
- if [ "$actuel" != "$precedent" ]; then
-    ls -d "$(realpath "$1")"/*.csv
- fi
- precedent="$actuel"
- sleep 30
+    for f in "$dossier"/*.csv; do
+        [ -e "$f" ] || continue          
+
+        if ! grep -Fxq -- "$f" <<< "$deja_vus"; then
+            echo "$f"
+            deja_vus+="$f"$'\n'
+        fi
+    done
+    sleep 30
 done
